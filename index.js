@@ -5,8 +5,8 @@ import fs from "fs-extra";
 import IUniswapV3PoolABI from "./artifacts/IUniswapV3PoolAbi.json" assert { type: "json" };
 
 // Configuration
-const providerUrl = "https://testnet-rpc.monad.xyz";
-const poolAddress = "0x6cBa988c15F94ec92F015d9501b16312f8DE4c6c";
+const providerUrl = "https://bnb-mainnet.g.alchemy.com/v2/ABiHuR-8MHnojsrXqqV_tAnPKJSZyUbN";
+const poolAddress = "0x104bab30b2983df47dd504114353B0A73bF663CE";
 const dataFilePath = "./priceData.json";
 const PORT = 3000;
 
