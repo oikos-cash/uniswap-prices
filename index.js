@@ -5,7 +5,7 @@ import fs from "fs-extra";
 import IUniswapV3PoolABI from "./artifacts/IUniswapV3PoolAbi.json" assert { type: "json" };
 
 // Configuration
-const providerUrl = "https://bnb-mainnet.g.alchemy.com/v2/ABiHuR-8MHnojsrXqqV_tAnPKJSZyUbN";
+const providerUrl = "https://bsc-dataseed.bnbchain.org";
 const poolAddress = "0x104bab30b2983df47dd504114353B0A73bF663CE";
 const dataFilePath = "./priceData.json";
 const PORT = 3001;
@@ -31,12 +31,77 @@ const app = express();
 app.use(cors()); // Enable CORS for all routes
 app.use(express.json());
 
+// Backfill historical OHLC data from existing price history
+const backfillHistoricalOHLC = () => {
+  if (priceData.history.length === 0) return;
+
+  const intervals = {
+    "5m": 5 * 60 * 1000,
+    "15m": 15 * 60 * 1000,
+    "30m": 30 * 60 * 1000,
+    "1h": 60 * 60 * 1000,
+    "24h": 24 * 60 * 60 * 1000,
+    "1w": 7 * 24 * 60 * 60 * 1000,
+    "1M": 30 * 24 * 60 * 60 * 1000
+  };
+
+  // Only backfill if OHLC arrays are empty or very small
+  Object.entries(intervals).forEach(([interval, ms]) => {
+    if (priceData.ohlc[interval] && priceData.ohlc[interval].length >= 2) {
+      return; // Skip if we already have sufficient data
+    }
+
+    // Clear existing data for clean backfill
+    priceData.ohlc[interval] = [];
+
+    // Process each historical price point
+    priceData.history.forEach(historyItem => {
+      const { price, timestamp } = historyItem;
+      const currentOHLC = priceData.ohlc[interval];
+
+      // Calculate the candle start time (rounded down to interval boundary)
+      const roundedTimestamp = Math.floor(timestamp / ms) * ms;
+
+      // If no candles exist or the last candle is for a different time period, create a new one
+      if (currentOHLC.length === 0 || 
+          currentOHLC[currentOHLC.length - 1].timestamp !== roundedTimestamp) {
+        
+        currentOHLC.push({
+          timestamp: roundedTimestamp,
+          open: price,
+          high: price,
+          low: price,
+          close: price,
+          volume: 1
+        });
+      } else {
+        // Update the current candle
+        const currentCandle = currentOHLC[currentOHLC.length - 1];
+        currentCandle.high = Math.max(currentCandle.high, price);
+        currentCandle.low = Math.min(currentCandle.low, price);
+        currentCandle.close = price;
+        currentCandle.volume += 1;
+      }
+    });
+
+    console.log(`Backfilled ${priceData.ohlc[interval].length} candles for ${interval} interval`);
+  });
+};
+
 // Create or load existing data file
 const initializeDataFile = async () => {
   try {
     if (await fs.pathExists(dataFilePath)) {
       const data = await fs.readJson(dataFilePath);
       Object.assign(priceData, data);
+      
+      // Ensure all OHLC intervals exist (for backward compatibility)
+      if (!priceData.ohlc["1w"]) priceData.ohlc["1w"] = [];
+      if (!priceData.ohlc["1M"]) priceData.ohlc["1M"] = [];
+      
+      // Backfill historical OHLC data from price history
+      backfillHistoricalOHLC();
+      
       console.log("Loaded existing price data");
     } else {
       await fs.writeJson(dataFilePath, priceData);
@@ -68,12 +133,21 @@ const getIntervalPrices = (minutes, limit = 10) => {
   const cutoffTime = now - (minutes * 60 * 1000);
 
   // Filter price history to the specified interval
-  const filteredData = priceData.history
+  let filteredData = priceData.history
     .filter(item => item.timestamp >= cutoffTime)
     .map(item => ({
       price: item.price,
       timestamp: item.timestamp
     }));
+
+  // For longer intervals (1w, 1M), if no data in time window, use all available data
+  if (filteredData.length === 0 && (minutes >= 10080)) { // 1w = 10080 minutes
+    filteredData = priceData.history
+      .map(item => ({
+        price: item.price,
+        timestamp: item.timestamp
+      }));
+  }
 
   // If we have more data points than the limit, sample them
   if (filteredData.length > limit) {
