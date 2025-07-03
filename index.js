@@ -296,6 +296,31 @@ const updatePrice = async () => {
   }
 };
 
+// Helper function to validate and map interval parameter
+const mapInterval = (interval) => {
+  if (interval === "5" || interval === "5m") return "5m";
+  else if (interval === "15" || interval === "15m") return "15m";
+  else if (interval === "30" || interval === "30m") return "30m";
+  else if (interval === "60" || interval === "1" || interval === "1h" || interval === "1hour") return "1h";
+  else if (interval === "720" || interval === "12" || interval === "12h") return "12h";
+  else if (interval === "1440" || interval === "24" || interval === "24h") return "24h";
+  else if (interval === "1w" || interval === "week") return "1w";
+  else if (interval === "1M" || interval === "month") return "1M";
+  return null;
+};
+
+// Helper function to filter OHLC data by timestamp range
+const filterOHLCByTimeRange = (ohlcData, fromTimestamp, toTimestamp) => {
+  if (!ohlcData || ohlcData.length === 0) return [];
+  
+  return ohlcData.filter(candle => {
+    const candleTime = candle.timestamp;
+    const afterFrom = !fromTimestamp || candleTime >= fromTimestamp;
+    const beforeTo = !toTimestamp || candleTime <= toTimestamp;
+    return afterFrom && beforeTo;
+  });
+};
+
 // API Endpoints
 app.get("/api/price", (req, res) => {
   res.json({
@@ -311,6 +336,140 @@ app.get("/api/price/latest", (req, res) => {
   });
 });
 
+// New time-based query endpoint
+app.get("/api/price/query", (req, res) => {
+  const { from_timestamp, to_timestamp, interval } = req.query;
+  
+  // Validate required parameters
+  if (!interval) {
+    return res.status(400).json({
+      error: "Missing required parameter: interval",
+      validIntervals: ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"]
+    });
+  }
+  
+  // Map and validate interval
+  const intervalKey = mapInterval(interval);
+  if (!intervalKey) {
+    return res.status(400).json({
+      error: "Invalid interval parameter",
+      provided: interval,
+      validIntervals: ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"]
+    });
+  }
+  
+  // Parse timestamps
+  let fromTimestamp = null;
+  let toTimestamp = null;
+  
+  if (from_timestamp) {
+    fromTimestamp = parseInt(from_timestamp);
+    if (isNaN(fromTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid from_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  if (to_timestamp) {
+    toTimestamp = parseInt(to_timestamp);
+    if (isNaN(toTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid to_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  // Validate timestamp range
+  if (fromTimestamp && toTimestamp && fromTimestamp > toTimestamp) {
+    return res.status(400).json({
+      error: "from_timestamp cannot be greater than to_timestamp"
+    });
+  }
+  
+  // Get OHLC data for the interval
+  const ohlcData = priceData.ohlc[intervalKey] || [];
+  
+  // Filter data by timestamp range
+  const filteredData = filterOHLCByTimeRange(ohlcData, fromTimestamp, toTimestamp);
+  
+  res.json({
+    interval: intervalKey,
+    from_timestamp: fromTimestamp,
+    to_timestamp: toTimestamp,
+    count: filteredData.length,
+    ohlc: filteredData,
+    lastUpdated: priceData.lastUpdated
+  });
+});
+
+// OHLC endpoint with query parameters for interval and time filtering
+app.get("/api/price/ohlc", (req, res) => {
+  const { interval, from_timestamp, to_timestamp } = req.query;
+  
+  // Validate required parameters
+  if (!interval) {
+    return res.status(400).json({
+      error: "Missing required parameter: interval",
+      validIntervals: ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"]
+    });
+  }
+  
+  // Map and validate interval
+  const intervalKey = mapInterval(interval);
+  if (!intervalKey) {
+    return res.status(400).json({
+      error: "Invalid interval parameter",
+      provided: interval,
+      validIntervals: ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"]
+    });
+  }
+  
+  // Parse timestamps
+  let fromTimestamp = null;
+  let toTimestamp = null;
+  
+  if (from_timestamp) {
+    fromTimestamp = parseInt(from_timestamp);
+    if (isNaN(fromTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid from_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  if (to_timestamp) {
+    toTimestamp = parseInt(to_timestamp);
+    if (isNaN(toTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid to_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  // Validate timestamp range
+  if (fromTimestamp && toTimestamp && fromTimestamp > toTimestamp) {
+    return res.status(400).json({
+      error: "from_timestamp cannot be greater than to_timestamp"
+    });
+  }
+  
+  // Get OHLC data for the interval
+  const ohlcData = priceData.ohlc[intervalKey] || [];
+  
+  // Filter data by timestamp range
+  const filteredData = filterOHLCByTimeRange(ohlcData, fromTimestamp, toTimestamp);
+  
+  res.json({
+    interval: intervalKey,
+    from_timestamp: fromTimestamp,
+    to_timestamp: toTimestamp,
+    count: filteredData.length,
+    ohlc: filteredData,
+    lastUpdated: priceData.lastUpdated
+  });
+});
+
 // Add a dedicated endpoint to get all OHLC data
 app.get("/api/price/ohlc/all", (req, res) => {
   res.json({
@@ -319,97 +478,170 @@ app.get("/api/price/ohlc/all", (req, res) => {
   });
 });
 
-// New endpoint specifically for OHLC data by interval
+// Enhanced OHLC endpoint with optional time filtering
 app.get("/api/price/ohlc/:interval", (req, res) => {
   const interval = req.params.interval;
-  let intervalKey = null;
+  const { from_timestamp, to_timestamp } = req.query;
+  
+  const intervalKey = mapInterval(interval);
+  
+  if (!intervalKey) {
+    return res.status(400).json({
+      error: "Invalid interval parameter",
+      provided: interval,
+      validIntervals: ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"]
+    });
+  }
+  
+  // Parse timestamps if provided
+  let fromTimestamp = null;
+  let toTimestamp = null;
+  
+  if (from_timestamp) {
+    fromTimestamp = parseInt(from_timestamp);
+    if (isNaN(fromTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid from_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  if (to_timestamp) {
+    toTimestamp = parseInt(to_timestamp);
+    if (isNaN(toTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid to_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+  
+  const ohlcData = priceData.ohlc[intervalKey] || [];
+  
+  // Filter data by timestamp range if timestamps are provided
+  const filteredData = (fromTimestamp || toTimestamp) ? 
+    filterOHLCByTimeRange(ohlcData, fromTimestamp, toTimestamp) : 
+    ohlcData;
 
-  // Map interval parameter to key
-  if (interval === "5" || interval === "5m") intervalKey = "5m";
-  else if (interval === "15" || interval === "15m") intervalKey = "15m";
-  else if (interval === "30" || interval === "30m") intervalKey = "30m";
-  else if (interval === "60" || interval === "1" || interval === "1h") intervalKey = "1h";
-  else if (interval === "720" || interval === "12" || interval === "12h") intervalKey = "12h";
-  else if (interval === "1440" || interval === "24" || interval === "24h") intervalKey = "24h";
-  else if (interval === "1w" || interval === "week") intervalKey = "1w";
-  else if (interval === "1M" || interval === "month") intervalKey = "1M";
-
-  if (intervalKey && priceData.ohlc[intervalKey] && priceData.ohlc[intervalKey].length > 0) {
+  if (filteredData.length > 0) {
     res.json({
       interval: intervalKey,
-      ohlc: priceData.ohlc[intervalKey],
+      from_timestamp: fromTimestamp,
+      to_timestamp: toTimestamp,
+      count: filteredData.length,
+      ohlc: filteredData,
       lastUpdated: priceData.lastUpdated
     });
   } else {
-    res.status(400).json({
-      error: "Invalid interval or no data available. Use 5m, 15m, 30m, 1h, 12h, 24h, 1w, or 1M"
+    res.status(404).json({
+      error: "No data available for the specified interval and time range",
+      interval: intervalKey,
+      from_timestamp: fromTimestamp,
+      to_timestamp: toTimestamp
     });
   }
 });
 
-// Endpoint with parameter must come after specific routes
+// Legacy endpoint for backward compatibility
 app.get("/api/price/:interval", (req, res) => {
   const interval = req.params.interval;
-  let intervalKey = null;
+  const { from_timestamp, to_timestamp } = req.query;
+  
+  const intervalKey = mapInterval(interval);
 
-  // Map interval parameter to key
-  if (interval === "5" || interval === "5m") intervalKey = "5m";
-  else if (interval === "15" || interval === "15m") intervalKey = "15m";
-  else if (interval === "30" || interval === "30m") intervalKey = "30m";
-  else if (interval === "60" || interval === "1" || interval === "1h") intervalKey = "1h";
-  else if (interval === "720" || interval === "12" || interval === "12h") intervalKey = "12h";
-  else if (interval === "1440" || interval === "24" || interval === "24h") intervalKey = "24h";
-  else if (interval === "1w" || interval === "week") intervalKey = "1w";
-  else if (interval === "1M" || interval === "month") intervalKey = "1M";
+  if (!intervalKey) {
+    return res.status(400).json({ 
+      error: "Invalid interval. Use 5m, 15m, 30m, 1h, 12h, 24h, 1w, or 1M" 
+    });
+  }
 
-  if (intervalKey) {
-    // Use OHLC data if available, otherwise fall back to the old method
-    if (priceData.ohlc[intervalKey] && priceData.ohlc[intervalKey].length > 0) {
-      res.json({
-        interval: intervalKey,
-        ohlc: priceData.ohlc[intervalKey],
-        lastUpdated: priceData.lastUpdated
-      });
-    } else {
-      // Fall back to legacy data method
-      let minutes = intervalKey === "24h" ? 1440 :
-                  intervalKey === "1h" ? 60 :
-                  intervalKey === "12h" ? 720 :
-                  intervalKey === "1w" ? 10080 :
-                  intervalKey === "1M" ? 43200 :
-                  parseInt(intervalKey);
-
-      const intervalData = getIntervalPrices(minutes);
-
-      // Calculate simple stats
-      let avg = 0;
-      let min = intervalData.length > 0 ? intervalData[0].price : 0;
-      let max = 0;
-
-      if (intervalData.length > 0) {
-        const sum = intervalData.reduce((acc, item) => acc + item.price, 0);
-        avg = sum / intervalData.length;
-
-        intervalData.forEach(item => {
-          if (item.price < min) min = item.price;
-          if (item.price > max) max = item.price;
-        });
-      }
-
-      res.json({
-        interval: intervalKey,
-        dataPoints: intervalData,
-        stats: {
-          count: intervalData.length,
-          avg,
-          min,
-          max
-        },
-        lastUpdated: priceData.lastUpdated
+  // Parse timestamps if provided
+  let fromTimestamp = null;
+  let toTimestamp = null;
+  
+  if (from_timestamp) {
+    fromTimestamp = parseInt(from_timestamp);
+    if (isNaN(fromTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid from_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
       });
     }
+  }
+  
+  if (to_timestamp) {
+    toTimestamp = parseInt(to_timestamp);
+    if (isNaN(toTimestamp)) {
+      return res.status(400).json({
+        error: "Invalid to_timestamp parameter. Must be a valid Unix timestamp in milliseconds."
+      });
+    }
+  }
+
+  // Use OHLC data if available, otherwise fall back to the old method
+  if (priceData.ohlc[intervalKey] && priceData.ohlc[intervalKey].length > 0) {
+    const ohlcData = priceData.ohlc[intervalKey];
+    
+    // Filter data by timestamp range if timestamps are provided
+    const filteredData = (fromTimestamp || toTimestamp) ? 
+      filterOHLCByTimeRange(ohlcData, fromTimestamp, toTimestamp) : 
+      ohlcData;
+    
+    res.json({
+      interval: intervalKey,
+      from_timestamp: fromTimestamp,
+      to_timestamp: toTimestamp,
+      count: filteredData.length,
+      ohlc: filteredData,
+      lastUpdated: priceData.lastUpdated
+    });
   } else {
-    res.status(400).json({ error: "Invalid interval. Use 5m, 15m, 30m, 1h, 12h, 24h, 1w, or 1M" });
+    // Fall back to legacy data method
+    let minutes = intervalKey === "24h" ? 1440 :
+                intervalKey === "1h" ? 60 :
+                intervalKey === "12h" ? 720 :
+                intervalKey === "1w" ? 10080 :
+                intervalKey === "1M" ? 43200 :
+                parseInt(intervalKey);
+
+    const intervalData = getIntervalPrices(minutes);
+    
+    // Filter legacy data by timestamp if provided
+    let filteredData = intervalData;
+    if (fromTimestamp || toTimestamp) {
+      filteredData = intervalData.filter(item => {
+        const afterFrom = !fromTimestamp || item.timestamp >= fromTimestamp;
+        const beforeTo = !toTimestamp || item.timestamp <= toTimestamp;
+        return afterFrom && beforeTo;
+      });
+    }
+
+    // Calculate simple stats
+    let avg = 0;
+    let min = filteredData.length > 0 ? filteredData[0].price : 0;
+    let max = 0;
+
+    if (filteredData.length > 0) {
+      const sum = filteredData.reduce((acc, item) => acc + item.price, 0);
+      avg = sum / filteredData.length;
+
+      filteredData.forEach(item => {
+        if (item.price < min) min = item.price;
+        if (item.price > max) max = item.price;
+      });
+    }
+
+    res.json({
+      interval: intervalKey,
+      from_timestamp: fromTimestamp,
+      to_timestamp: toTimestamp,
+      dataPoints: filteredData,
+      stats: {
+        count: filteredData.length,
+        avg,
+        min,
+        max
+      },
+      lastUpdated: priceData.lastUpdated
+    });
   }
 });
 
