@@ -20,6 +20,7 @@ const priceData = {
     "15m": [],
     "30m": [],
     "1h": [],
+    "12h": [],
     "24h": [],
     "1w": [],
     "1M": []
@@ -40,6 +41,7 @@ const backfillHistoricalOHLC = () => {
     "15m": 15 * 60 * 1000,
     "30m": 30 * 60 * 1000,
     "1h": 60 * 60 * 1000,
+    "12h": 12 * 60 * 60 * 1000,
     "24h": 24 * 60 * 60 * 1000,
     "1w": 7 * 24 * 60 * 60 * 1000,
     "1M": 30 * 24 * 60 * 60 * 1000
@@ -96,6 +98,7 @@ const initializeDataFile = async () => {
       Object.assign(priceData, data);
       
       // Ensure all OHLC intervals exist (for backward compatibility)
+      if (!priceData.ohlc["12h"]) priceData.ohlc["12h"] = [];
       if (!priceData.ohlc["1w"]) priceData.ohlc["1w"] = [];
       if (!priceData.ohlc["1M"]) priceData.ohlc["1M"] = [];
       
@@ -209,6 +212,7 @@ const updateOHLCData = (price, timestamp) => {
     "15m": 15 * 60 * 1000,
     "30m": 30 * 60 * 1000,
     "1h": 60 * 60 * 1000,
+    "12h": 12 * 60 * 60 * 1000,
     "24h": 24 * 60 * 60 * 1000,
     "1w": 7 * 24 * 60 * 60 * 1000,
     "1M": 30 * 24 * 60 * 60 * 1000
@@ -248,6 +252,7 @@ const updateOHLCData = (price, timestamp) => {
       "15m": 100,
       "30m": 100,
       "1h": 100,
+      "12h": 100,
       "24h": 100,
       "1w": 100,
       "1M": 100
@@ -324,6 +329,7 @@ app.get("/api/price/ohlc/:interval", (req, res) => {
   else if (interval === "15" || interval === "15m") intervalKey = "15m";
   else if (interval === "30" || interval === "30m") intervalKey = "30m";
   else if (interval === "60" || interval === "1" || interval === "1h") intervalKey = "1h";
+  else if (interval === "720" || interval === "12" || interval === "12h") intervalKey = "12h";
   else if (interval === "1440" || interval === "24" || interval === "24h") intervalKey = "24h";
   else if (interval === "1w" || interval === "week") intervalKey = "1w";
   else if (interval === "1M" || interval === "month") intervalKey = "1M";
@@ -336,7 +342,7 @@ app.get("/api/price/ohlc/:interval", (req, res) => {
     });
   } else {
     res.status(400).json({
-      error: "Invalid interval or no data available. Use 5m, 15m, 30m, 1h, 24h, 1w, or 1M"
+      error: "Invalid interval or no data available. Use 5m, 15m, 30m, 1h, 12h, 24h, 1w, or 1M"
     });
   }
 });
@@ -351,6 +357,7 @@ app.get("/api/price/:interval", (req, res) => {
   else if (interval === "15" || interval === "15m") intervalKey = "15m";
   else if (interval === "30" || interval === "30m") intervalKey = "30m";
   else if (interval === "60" || interval === "1" || interval === "1h") intervalKey = "1h";
+  else if (interval === "720" || interval === "12" || interval === "12h") intervalKey = "12h";
   else if (interval === "1440" || interval === "24" || interval === "24h") intervalKey = "24h";
   else if (interval === "1w" || interval === "week") intervalKey = "1w";
   else if (interval === "1M" || interval === "month") intervalKey = "1M";
@@ -367,6 +374,7 @@ app.get("/api/price/:interval", (req, res) => {
       // Fall back to legacy data method
       let minutes = intervalKey === "24h" ? 1440 :
                   intervalKey === "1h" ? 60 :
+                  intervalKey === "12h" ? 720 :
                   intervalKey === "1w" ? 10080 :
                   intervalKey === "1M" ? 43200 :
                   parseInt(intervalKey);
@@ -401,13 +409,13 @@ app.get("/api/price/:interval", (req, res) => {
       });
     }
   } else {
-    res.status(400).json({ error: "Invalid interval. Use 5m, 15m, 30m, 1h, 24h, 1w, or 1M" });
+    res.status(400).json({ error: "Invalid interval. Use 5m, 15m, 30m, 1h, 12h, 24h, 1w, or 1M" });
   }
 });
 
 // Define fixed-path routes before parameter routes
 app.get("/api/price/all", (req, res) => {
-  const intervalKeys = ["5m", "15m", "30m", "1h", "24h", "1w", "1M"];
+  const intervalKeys = ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"];
   const result = {};
 
   intervalKeys.forEach(intervalKey => {
@@ -418,6 +426,7 @@ app.get("/api/price/all", (req, res) => {
       // Fall back to legacy method
       const minutes = intervalKey === "24h" ? 1440 :
                       intervalKey === "1h" ? 60 :
+                      intervalKey === "12h" ? 720 :
                       intervalKey === "1w" ? 10080 :
                       intervalKey === "1M" ? 43200 :
                       parseInt(intervalKey);
@@ -432,7 +441,7 @@ app.get("/api/price/all", (req, res) => {
 });
 
 app.get("/api/price/intervals/all", (req, res) => {
-  const intervalKeys = ["5m", "15m", "30m", "1h", "24h", "1w", "1M"];
+  const intervalKeys = ["5m", "15m", "30m", "1h", "12h", "24h", "1w", "1M"];
   const result = {};
 
   intervalKeys.forEach(intervalKey => {
@@ -443,6 +452,7 @@ app.get("/api/price/intervals/all", (req, res) => {
       // Fall back to legacy method
       const minutes = intervalKey === "24h" ? 1440 :
                       intervalKey === "1h" ? 60 :
+                      intervalKey === "12h" ? 720 :
                       intervalKey === "1w" ? 10080 :
                       intervalKey === "1M" ? 43200 :
                       parseInt(intervalKey);
